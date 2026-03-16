@@ -5,7 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
+
 	"fmt"
 	"io"
 	"math"
@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
+
 )
 
 const (
