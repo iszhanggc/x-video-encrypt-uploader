@@ -24,10 +24,11 @@ type Client struct {
 	redirectURI  string
 	accessToken  string
 	refreshToken string
+	bduss        string // BDUSS cookie for direct authentication
 	httpClient   *http.Client
 }
 
-// NewClient 创建百度云盘客户端
+// NewClient 创建百度云盘客户端（OAuth方式）
 func NewClient(clientID, clientSecret, redirectURI string) *Client {
 	return &Client{
 		clientID:     clientID,
@@ -42,6 +43,14 @@ func NewClientWithToken(accessToken string) *Client {
 	return &Client{
 		accessToken: accessToken,
 		httpClient:  &http.Client{},
+	}
+}
+
+// NewClientWithBDUSS 使用BDUSS创建客户端（Cookie方式，推荐）
+func NewClientWithBDUSS(bduss string) *Client {
+	return &Client{
+		bduss:      bduss,
+		httpClient: &http.Client{},
 	}
 }
 
@@ -146,7 +155,13 @@ func (c *Client) GetUserInfo() (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	// 如果有BDUSS，优先用Cookie认证
+	if c.bduss != "" {
+		req.Header.Add("Cookie", "BDUSS="+c.bduss)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -173,4 +188,9 @@ func (c *Client) GetUserInfo() (map[string]interface{}, error) {
 // AccessToken 获取当前AccessToken
 func (c *Client) AccessToken() string {
 	return c.accessToken
+}
+
+// BDUSS 获取当前BDUSS
+func (c *Client) BDUSS() string {
+	return c.bduss
 }

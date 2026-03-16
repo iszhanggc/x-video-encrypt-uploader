@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-
 	"fmt"
 	"io"
 	"math"
@@ -13,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-
 )
 
 const (
@@ -190,7 +188,11 @@ func (c *Client) UploadFile(localPath, remotePath string, option ...UploadOption
 func (c *Client) Preupload(remotePath string, fileSize int64, blockMd5s []string, overwrite bool) (*PreuploadResponse, error) {
 	params := url.Values{}
 	params.Set("method", "precreate")
-	params.Set("access_token", c.accessToken)
+	if c.bduss != "" {
+		params.Set("access_token", "")
+	} else {
+		params.Set("access_token", c.accessToken)
+	}
 	params.Set("path", remotePath)
 	params.Set("size", strconv.FormatInt(fileSize, 10))
 	params.Set("isdir", "0")
@@ -203,7 +205,15 @@ func (c *Client) Preupload(remotePath string, fileSize int64, blockMd5s []string
 	}
 
 	reqURL := apiURL + "?" + params.Encode()
-	resp, err := c.httpClient.Post(reqURL, "application/json", nil)
+	req, err := http.NewRequest("POST", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	// 如果有BDUSS，添加Cookie认证
+	if c.bduss != "" {
+		req.Header.Add("Cookie", "BDUSS="+c.bduss)
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +240,11 @@ func (c *Client) Preupload(remotePath string, fileSize int64, blockMd5s []string
 func (c *Client) UploadChunk(remotePath, uploadID string, partseq int, data []byte) (*UploadChunkResponse, error) {
 	params := url.Values{}
 	params.Set("method", "upload")
-	params.Set("access_token", c.accessToken)
+	if c.bduss != "" {
+		params.Set("access_token", "")
+	} else {
+		params.Set("access_token", c.accessToken)
+	}
 	params.Set("type", "tmpfile")
 	params.Set("path", remotePath)
 	params.Set("uploadid", uploadID)
@@ -251,6 +265,9 @@ func (c *Client) UploadChunk(remotePath, uploadID string, partseq int, data []by
 		return nil, err
 	}
 
+	if c.bduss != "" {
+		req.Header.Add("Cookie", "BDUSS="+c.bduss)
+	}
 	req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -279,7 +296,11 @@ func (c *Client) UploadChunk(remotePath, uploadID string, partseq int, data []by
 func (c *Client) CreateFile(remotePath string, fileSize int64, uploadID string, blockMd5s []string, overwrite bool) (*CreateFileResponse, error) {
 	params := url.Values{}
 	params.Set("method", "create")
-	params.Set("access_token", c.accessToken)
+	if c.bduss != "" {
+		params.Set("access_token", "")
+	} else {
+		params.Set("access_token", c.accessToken)
+	}
 	params.Set("path", remotePath)
 	params.Set("size", strconv.FormatInt(fileSize, 10))
 	params.Set("isdir", "0")
@@ -292,7 +313,15 @@ func (c *Client) CreateFile(remotePath string, fileSize int64, uploadID string, 
 	}
 
 	reqURL := apiURL + "?" + params.Encode()
-	resp, err := c.httpClient.Post(reqURL, "application/json", nil)
+	req, err := http.NewRequest("POST", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.bduss != "" {
+		req.Header.Add("Cookie", "BDUSS="+c.bduss)
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -322,4 +351,17 @@ func toJSON(v interface{}) string {
 		return ""
 	}
 	return string(data)
+}
+
+// EnsureBaseDir 确保基础目录存在，如果不存在则创建
+func (c *Client) EnsureBaseDir(dir string) error {
+	// TODO: 实现创建目录逻辑
+	// 百度云API会自动创建父目录，所以这里可以先不实现
+	return nil
+}
+
+// DeleteFile 删除文件
+func (c *Client) DeleteFile(remotePath string) error {
+	// TODO: 实现删除逻辑
+	return fmt.Errorf("delete not implemented")
 }
