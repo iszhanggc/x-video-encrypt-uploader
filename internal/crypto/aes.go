@@ -83,7 +83,7 @@ func (a *AESGCM) Decrypt(ciphertext []byte, iv []byte) ([]byte, error) {
 // EncryptStream 流式加密，适合大文件
 // reader: 明文输入流
 // writer: 密文输出流
-// iv: 12字节随机IV
+// iv: 随机IV（如果用CTR模式需要16字节）
 // 返回加密后的总字节数和错误
 func (a *AESGCM) EncryptStream(reader io.Reader, writer io.Writer, iv []byte) (int64, error) {
 	block, err := aes.NewCipher(a.key)
@@ -92,7 +92,11 @@ func (a *AESGCM) EncryptStream(reader io.Reader, writer io.Writer, iv []byte) (i
 	}
 
 	// TODO: GCM流式加密实现，当前先用CTR模式
-	stream := cipher.NewCTR(block, iv)
+	// CTR requires IV length equal to block size (16 bytes for AES)
+	// If we get 12 bytes, pad with 4 zero bytes
+	var ctrIV [16]byte
+	copy(ctrIV[:], iv)
+	stream := cipher.NewCTR(block, ctrIV[:])
 	writer = &cipher.StreamWriter{S: stream, W: writer}
 
 	// 拷贝数据
@@ -112,7 +116,10 @@ func (a *AESGCM) DecryptStream(reader io.Reader, writer io.Writer, iv []byte) (i
 	}
 
 	// TODO: GCM流式解密实现，当前先用CTR模式
-	stream := cipher.NewCTR(block, iv)
+	// CTR requires IV length equal to block size (16 bytes for AES)
+	var ctrIV [16]byte
+	copy(ctrIV[:], iv)
+	stream := cipher.NewCTR(block, ctrIV[:])
 	writer = &cipher.StreamWriter{S: stream, W: writer}
 
 	n, err := io.Copy(writer, reader)
