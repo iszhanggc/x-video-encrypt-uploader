@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"strconv"
 )
 
@@ -68,6 +70,11 @@ var DefaultUploadOption = UploadOption{
 // remotePath: 云盘路径，如 /apps/备份/xxx.mp4
 // option: 上传选项
 func (c *Client) UploadFile(localPath, remotePath string, option ...UploadOption) (*CreateFileResponse, error) {
+	// 如果remotePath开头没有/，加上/
+	if !strings.HasPrefix(remotePath, "/") {
+		remotePath = "/" + remotePath
+	}
+
 	opt := DefaultUploadOption
 	if len(option) > 0 {
 		opt = option[0]
@@ -120,6 +127,12 @@ func (c *Client) UploadFile(localPath, remotePath string, option ...UploadOption
 		blockMd5s[i] = hex.EncodeToString(hash[:])
 	}
 
+	// 确保父目录存在
+	dirPath := filepath.Dir(remotePath)
+	if err := c.EnsureBaseDir(dirPath); err != nil {
+		return nil, err
+	}
+
 	// 1. 预上传
 	preuploadResp, err := c.Preupload(remotePath, fileSize, blockMd5s, opt.Overwrite)
 	if err != nil {
@@ -169,7 +182,7 @@ func (c *Client) UploadFile(localPath, remotePath string, option ...UploadOption
 		// 上传分块
 		_, err = c.UploadChunk(remotePath, uploadID, part, buf)
 		if err != nil {
-			return nil, fmt.Errorf("上传分块%d失败: %v", part, err)
+			return nil, fmt.Errorf("上传分块%d失败: %v", part+1, err)
 		}
 
 		fmt.Printf("✅ 已上传分块 %d/%d\n", part+1, chunkCount)
@@ -186,6 +199,11 @@ func (c *Client) UploadFile(localPath, remotePath string, option ...UploadOption
 
 // Preupload 预上传接口
 func (c *Client) Preupload(remotePath string, fileSize int64, blockMd5s []string, overwrite bool) (*PreuploadResponse, error) {
+	// 如果remotePath开头没有/，加上/
+	if !strings.HasPrefix(remotePath, "/") {
+		remotePath = "/" + remotePath
+	}
+
 	params := url.Values{}
 	params.Set("method", "precreate")
 	if c.bduss != "" {
@@ -294,6 +312,11 @@ func (c *Client) UploadChunk(remotePath, uploadID string, partseq int, data []by
 
 // CreateFile 创建文件
 func (c *Client) CreateFile(remotePath string, fileSize int64, uploadID string, blockMd5s []string, overwrite bool) (*CreateFileResponse, error) {
+	// 如果remotePath开头没有/，加上/
+	if !strings.HasPrefix(remotePath, "/") {
+		remotePath = "/" + remotePath
+	}
+
 	params := url.Values{}
 	params.Set("method", "create")
 	if c.bduss != "" {
@@ -353,10 +376,104 @@ func toJSON(v interface{}) string {
 	return string(data)
 }
 
-// EnsureBaseDir 确保基础目录存在，如果不存在则创建
-func (c *Client) EnsureBaseDir(dir string) error {
-	// TODO: 实现创建目录逻辑
-	// 百度云API会自动创建父目录，所以这里可以先不实现
+// EnsureBaseDir 确保基础目录存在，递归创建
+func (c *Client) EnsureBaseDir(path string) error {
+	// 去掉开头/，处理分割
+	path = strings.TrimPrefix(path, "/")
+	components := splitPath(path)
+	currentPath := ""
+
+	for _, comp := range components {
+		if comp == "" {
+			continue
+		}
+		if currentPath == "" {
+			currentPath = "/" + comp
+		} else {
+			currentPath = currentPath + "/" + comp
+		}
+		// 检查目录是否存在，如果不存在创建
+		if err := c.createDirIfNotExists(currentPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// splitPath 分割路径为组件
+func splitPath(path string) []string {
+	// 去掉开头和结尾的斜杠
+	for len(path) > 0 && path[0] == '/' {
+		path = path[1:]
+	}
+	for len(path) > 0 && path[len(path)-1] == '/' {
+		path = path[:len(path)-1]
+	}
+
+	if path == "" {
+		return []string{}
+	}
+
+	// 按斜杠分割
+	var components []string
+	start := 0
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' {
+			components = append(components, path[start:i])
+			start = i + 1
+		}
+	}
+	components = append(components, path[start:])
+	return components
+}
+
+// createDirIfNotExists 创建目录如果不存在
+func (c *Client) createDirIfNotExists(path string) error {
+	// 百度云没有检查方法，直接创建，如果报错已经存在就忽略
+	params := url.Values{}
+	params.Set("method", "mkdir")
+	if c.bduss != "" {
+		params.Set("access_token", "")
+	} else {
+		params.Set("access_token", c.accessToken)
+	}
+	params.Set("path", path)
+	params.Set("isdir", "1")
+
+	reqURL := apiURL + "?" + params.Encode()
+	req, err := http.NewRequest("POST", reqURL, nil)
+	if err != nil {
+		return err
+	}
+
+	if c.bduss != "" {
+		req.Header.Add("Cookie", "BDUSS="+c.bduss)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return err
+	}
+
+	if errCode, ok := result["errno"].(float64); ok && errCode != 0 {
+		// 错误码 31036 表示目录已经存在，忽略
+		if errCode == 31036 {
+			return nil
+		}
+		return fmt.Errorf("创建目录%s失败，错误码: %.0f", path, errCode)
+	}
+
 	return nil
 }
 

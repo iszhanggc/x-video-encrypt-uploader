@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 )
 
@@ -59,4 +60,14 @@ func DecryptKey(encryptedKey []byte, masterKey []byte) ([]byte, error) {
 	}
 
 	return key, nil
+}
+
+// EncodeKeyToBase64 将密钥编码为Base64字符串方便保存
+func EncodeKeyToBase64(key []byte) string {
+	return base64.StdEncoding.EncodeToString(key)
+}
+
+// DecodeKeyFromBase64 从Base64字符串解码密钥
+func DecodeKeyFromBase64(encoded string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(encoded)
 }
